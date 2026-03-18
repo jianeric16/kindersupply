@@ -35,7 +35,7 @@ const LANG = {
     deliveryDate: "Delivery Date", poNumber: "PO Number (Optional)", notes: "Order Notes (Optional)",
     allCategories: "All",
     categories: { books: "Books 📚", toys: "Toys 🧸", educational: "Educational Tools 🎓", playground: "Playground 🛝", art: "Art & Craft ✂️", furniture: "Furniture 🪑" },
-    statusMap: { pending: "Pending", confirmed: "Confirmed", shipped: "Shipped", delivered: "Delivered" },
+    statusMap: { received: "Order Received", acknowledged: "Order Acknowledged", processing: "Order Processing", shipped: "Item Shipped", delivered: "Delivered" },
     loginError: "Invalid credentials", minQty: "Min. Order", unit: "unit(s)",
     backToOrders: "← Back to Orders", orderDetails: "Order Details",
     welcome: "Welcome", pieces: "pcs", perUnit: "/unit", cartCount: "items in cart",
@@ -49,23 +49,28 @@ const LANG = {
     addSupplier: "+ Add Supplier", supplierName: "Username", supplierPassword: "Password", supplierCompany: "Company Name",
     savedSuccess: "Saved successfully!", deleteConfirm: "Are you sure you want to delete this?",
     resetData: "Reset All Data", resetConfirm: "This will delete all data and reload defaults. Are you sure?",
-    // New: Registration
+    // Registration
     register: "Create Account", registerBtn: "Register", backToLogin: "← Back to Login",
     schoolName: "School / Company Name", contactNumber: "Contact Number", email: "Email Address",
     address: "Address", confirmPassword: "Confirm Password",
     regErrorMatch: "Passwords do not match", regErrorExists: "Username already exists",
     regErrorRequired: "Please fill in all required fields", regSuccess: "Account created! You can now sign in.",
-    // New: Profile
+    // Profile
     profileTitle: "My Profile", updateProfile: "Save Changes", profileUpdated: "Profile updated!",
     changePassword: "Change Password", newPassword: "New Password", currentPassword: "Current Password",
     passwordChanged: "Password changed!", passwordError: "Current password is incorrect",
-    // New: Photo upload
+    // Photo upload
     uploadPhoto: "Upload Photo", removePhoto: "Remove Photo", dragDrop: "Click or drag image here",
     photoHint: "JPG, PNG — max 500KB", photoTooLarge: "Image too large. Please use an image under 500KB.",
     allClients: "All Clients", filterByClient: "Filter by Client", viewByClient: "By Client",
     viewByList: "All Orders", clientOrders: "Orders", clientDetails: "Client Details",
     totalOrders: "Total Orders", totalSpent: "Total Spent", contactInfo: "Contact Info",
     noOrdersClient: "No orders from this client yet",
+    // Admin order management
+    adminPo: "Purchase Order No.", invoiceNo: "Invoice No.", uploadInvoice: "Upload Invoice",
+    removeInvoice: "Remove Invoice", viewInvoice: "View Invoice", invoiceHint: "PDF or image — max 1MB",
+    adminOrderInfo: "Order Management", saveOrderInfo: "Save Changes", invoiceUploaded: "Invoice uploaded",
+    orderNotes: "Notes",
   },
   zh: {
     title: "KinderSupply", subtitle: "供应商订购平台",
@@ -79,7 +84,7 @@ const LANG = {
     deliveryDate: "交货日期", poNumber: "采购单号 (可选)", notes: "订单备注 (可选)",
     allCategories: "全部",
     categories: { books: "书籍 📚", toys: "玩具 🧸", educational: "教具 🎓", playground: "游乐设施 🛝", art: "美术用品 ✂️", furniture: "家具 🪑" },
-    statusMap: { pending: "待处理", confirmed: "已确认", shipped: "已发货", delivered: "已送达" },
+    statusMap: { received: "已接单", acknowledged: "已确认", processing: "处理中", shipped: "已发货", delivered: "已送达" },
     loginError: "登录失败", minQty: "最低订购量", unit: "个",
     backToOrders: "← 返回订单列表", orderDetails: "订单详情",
     welcome: "欢迎", pieces: "件", perUnit: "/件", cartCount: "件商品",
@@ -107,6 +112,11 @@ const LANG = {
     viewByList: "全部订单", clientOrders: "订单", clientDetails: "客户详情",
     totalOrders: "总订单数", totalSpent: "总消费", contactInfo: "联系信息",
     noOrdersClient: "该客户暂无订单",
+    // Admin order management
+    adminPo: "采购单号", invoiceNo: "发票号", uploadInvoice: "上传发票",
+    removeInvoice: "移除发票", viewInvoice: "查看发票", invoiceHint: "PDF或图片 — 最大 1MB",
+    adminOrderInfo: "订单管理", saveOrderInfo: "保存更改", invoiceUploaded: "发票已上传",
+    orderNotes: "备注",
   },
 };
 
@@ -302,7 +312,7 @@ function SupplierPortal() {
     if (!checkoutForm.deliveryDate) return;
     const newOrder = {
       id: `KS-${new Date().toISOString().slice(0, 10).replace(/-/g, "")}-${String(orders.length + 1).padStart(3, "0")}`,
-      date: new Date().toISOString().slice(0, 10), status: "pending",
+      date: new Date().toISOString().slice(0, 10), status: "received",
       supplier: user.username, company: user.company || user.schoolName,
       items: cart.map((i) => ({ id: i.id, nameEn: i.nameEn, nameZh: i.nameZh, price: i.price, img: i.img, sku: i.sku, qty: i.qty })),
       total: cartTotal, po: checkoutForm.po, deliveryDate: checkoutForm.deliveryDate, notes: checkoutForm.notes,
@@ -324,6 +334,12 @@ function SupplierPortal() {
     const u = orders.map((o) => (o.id === orderId ? { ...o, status: newStatus } : o));
     setOrders(u); await saveData("ks-orders", u);
     if (viewingOrder?.id === orderId) setViewingOrder({ ...viewingOrder, status: newStatus });
+    showToast(t.savedSuccess);
+  };
+  const updateOrderAdminFields = async (orderId, fields) => {
+    const u = orders.map((o) => (o.id === orderId ? { ...o, ...fields } : o));
+    setOrders(u); await saveData("ks-orders", u);
+    if (viewingOrder?.id === orderId) setViewingOrder({ ...viewingOrder, ...fields });
     showToast(t.savedSuccess);
   };
   const saveSupplier = async (supplier) => {
@@ -350,8 +366,8 @@ function SupplierPortal() {
 
   const myOrders = useMemo(() => isAdmin ? orders : orders.filter((o) => o.supplier === user?.username), [orders, user, isAdmin]);
   const pName = (p) => (lang === "en" ? p.nameEn : p.nameZh);
-  const statusColor = (s) => ({ pending: "#f59e0b", confirmed: "#3b82f6", shipped: "#8b5cf6", delivered: "#10b981" }[s]);
-  const STATUSES = ["pending", "confirmed", "shipped", "delivered"];
+  const statusColor = (s) => ({ received: "#f59e0b", acknowledged: "#3b82f6", processing: "#8b5cf6", shipped: "#f97316", delivered: "#10b981" }[s] || "#9ca3af");
+  const STATUSES = ["received", "acknowledged", "processing", "shipped", "delivered"];
   const CATEGORIES = ["books", "toys", "educational", "playground", "art", "furniture"];
   const getClientInfo = (username) => suppliers.find((s) => s.username === username) || {};
   const clientList = useMemo(() => {
@@ -556,6 +572,183 @@ function SupplierPortal() {
     );
   };
 
+  // ─── Order Detail View (with admin management) ───
+  const OrderDetailView = ({ order, isAdmin, t, lang, STATUSES, statusColor, pName, getClientInfo, updateOrderStatus, updateOrderAdminFields, showToast, onBack }) => {
+    const [adminPo, setAdminPo] = useState(order.adminPo || "");
+    const [invoiceNo, setInvoiceNo] = useState(order.invoiceNo || "");
+    const [adminNotes, setAdminNotes] = useState(order.adminNotes || "");
+    const [invoiceFile, setInvoiceFile] = useState(order.invoiceFile || "");
+    const [invoiceFileName, setInvoiceFileName] = useState(order.invoiceFileName || "");
+    const invoiceRef = useRef(null);
+
+    const handleInvoiceUpload = (file) => {
+      if (!file) return;
+      if (file.size > 1024 * 1024) { showToast(t.photoTooLarge); return; }
+      const reader = new FileReader();
+      reader.onload = (e) => { setInvoiceFile(e.target.result); setInvoiceFileName(file.name); };
+      reader.readAsDataURL(file);
+    };
+
+    const saveAdminFields = () => {
+      updateOrderAdminFields(order.id, { adminPo, invoiceNo, adminNotes, invoiceFile, invoiceFileName });
+    };
+
+    const curIdx = STATUSES.indexOf(order.status);
+    const ci = isAdmin && order.supplier ? getClientInfo(order.supplier) : {};
+
+    return (
+      <div>
+        <button onClick={onBack} style={S.backBtn}>{t.backToOrders}</button>
+
+        {/* Status Progress Bar */}
+        <div style={{ background: K.card, borderRadius: K.radius, border: `1.5px solid ${K.border}`, padding: "20px 24px", marginBottom: 16 }}>
+          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, flexWrap: "wrap", gap: 8 }}>
+            <h3 style={{ fontSize: 20, fontWeight: 900, color: K.text, margin: 0 }}>{t.orderDetails}</h3>
+            {isAdmin && (
+              <select style={{ ...S.input, width: "auto", padding: "6px 12px", fontSize: 13 }} value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value)}>
+                {STATUSES.map((s) => <option key={s} value={s}>{t.statusMap[s]}</option>)}
+              </select>
+            )}
+          </div>
+          <div style={{ display: "flex", alignItems: "center", gap: 0, overflow: "auto", paddingBottom: 4 }}>
+            {STATUSES.map((s, i) => {
+              const isActive = i <= curIdx;
+              const isCurrent = s === order.status;
+              return (
+                <div key={s} style={{ display: "flex", alignItems: "center", flex: 1, minWidth: 0 }}>
+                  <div style={{ display: "flex", flexDirection: "column", alignItems: "center", minWidth: 60 }}>
+                    <div style={{
+                      width: 28, height: 28, borderRadius: "50%",
+                      background: isActive ? statusColor(order.status) : "#e5e7eb",
+                      color: isActive ? "#fff" : "#9ca3af",
+                      display: "flex", alignItems: "center", justifyContent: "center",
+                      fontSize: 13, fontWeight: 800, fontFamily: K.font,
+                      border: isCurrent ? `3px solid ${statusColor(order.status)}44` : "none",
+                      boxShadow: isCurrent ? `0 0 0 4px ${statusColor(order.status)}22` : "none",
+                    }}>
+                      {isActive ? "✓" : i + 1}
+                    </div>
+                    <span style={{ fontSize: 10, fontWeight: 700, color: isActive ? statusColor(order.status) : "#9ca3af", marginTop: 4, textAlign: "center", whiteSpace: "nowrap" }}>{t.statusMap[s]}</span>
+                  </div>
+                  {i < STATUSES.length - 1 && (
+                    <div style={{ flex: 1, height: 3, background: i < curIdx ? statusColor(order.status) : "#e5e7eb", margin: "0 4px", borderRadius: 2, minWidth: 16, marginBottom: 18 }} />
+                  )}
+                </div>
+              );
+            })}
+          </div>
+        </div>
+
+        <div style={{ display: "grid", gridTemplateColumns: isAdmin ? "1fr 360px" : "1fr", gap: 16, alignItems: "start" }}>
+          {/* Left: Order info */}
+          <div>
+            {/* Order meta */}
+            <div style={{ ...S.orderDetailCard, marginBottom: 16 }}>
+              <div style={S.orderMeta}>
+                <div style={S.metaItem}><span style={S.metaLabel}>{t.orderNumber}</span><span style={S.metaValue}>{order.id}</span></div>
+                <div style={S.metaItem}><span style={S.metaLabel}>{t.date}</span><span style={S.metaValue}>{order.date}</span></div>
+                <div style={S.metaItem}><span style={S.metaLabel}>{t.deliveryDate}</span><span style={S.metaValue}>{order.deliveryDate}</span></div>
+                {order.po && <div style={S.metaItem}><span style={S.metaLabel}>{t.poNumber} (Client)</span><span style={S.metaValue}>{order.po}</span></div>}
+                {order.adminPo && !isAdmin && <div style={S.metaItem}><span style={S.metaLabel}>{t.adminPo}</span><span style={S.metaValue}>{order.adminPo}</span></div>}
+                {order.invoiceNo && !isAdmin && <div style={S.metaItem}><span style={S.metaLabel}>{t.invoiceNo}</span><span style={S.metaValue}>{order.invoiceNo}</span></div>}
+                {isAdmin && order.company && <div style={S.metaItem}><span style={S.metaLabel}>Company</span><span style={S.metaValue}>{order.company}</span></div>}
+              </div>
+              {/* Client invoice download for supplier */}
+              {!isAdmin && order.invoiceFile && (
+                <div style={{ marginTop: 12, padding: 12, background: "#EBF5FF", borderRadius: 10, border: "1.5px solid #C8DEFF", display: "flex", alignItems: "center", gap: 10 }}>
+                  <span style={{ fontSize: 22 }}>📄</span>
+                  <div style={{ flex: 1 }}>
+                    <span style={{ fontWeight: 700, fontSize: 13, color: K.text, display: "block" }}>{t.invoiceNo}: {order.invoiceNo || "—"}</span>
+                    <span style={{ fontSize: 12, color: K.textLight }}>{order.invoiceFileName || "Invoice"}</span>
+                  </div>
+                  <a href={order.invoiceFile} download={order.invoiceFileName || "invoice"} style={{ background: "#3b82f6", color: "#fff", border: "none", borderRadius: 8, padding: "6px 14px", fontSize: 12, fontWeight: 700, fontFamily: K.font, textDecoration: "none", cursor: "pointer" }}>{t.viewInvoice}</a>
+                </div>
+              )}
+            </div>
+
+            {/* Client details for admin */}
+            {isAdmin && ci.username && (
+              <div style={{ marginBottom: 16, padding: 16, background: "#EBF5FF", borderRadius: 12, border: "1.5px solid #C8DEFF" }}>
+                <h4 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 800, color: "#2563eb" }}>👤 {t.clientDetails}</h4>
+                <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", fontSize: 13 }}>
+                  <div><span style={{ fontWeight: 700, color: K.textLight }}>🏫 </span><span style={{ color: K.text }}>{ci.schoolName || ci.company || ci.username}</span></div>
+                  {ci.email && <div><span style={{ fontWeight: 700, color: K.textLight }}>📧 </span><span style={{ color: K.text }}>{ci.email}</span></div>}
+                  {ci.phone && <div><span style={{ fontWeight: 700, color: K.textLight }}>📞 </span><span style={{ color: K.text }}>{ci.phone}</span></div>}
+                  {ci.address && <div style={{ gridColumn: "1/-1" }}><span style={{ fontWeight: 700, color: K.textLight }}>📍 </span><span style={{ color: K.text }}>{ci.address}</span></div>}
+                </div>
+              </div>
+            )}
+
+            {/* Items */}
+            <div style={S.orderDetailCard}>
+              <div style={S.orderItemsList}>
+                {order.items.map((item, idx) => (
+                  <div key={idx} style={S.orderItemRow}>
+                    <span style={{ fontSize: 28, minWidth: 36 }}>{item.img}</span>
+                    <div style={{ flex: 1 }}><span style={S.cartItemName}>{pName(item)}</span><span style={S.cartItemPrice}>RM {item.price.toFixed(2)} × {item.qty}</span></div>
+                    <span style={S.cartItemTotal}>RM {(item.qty * item.price).toFixed(2)}</span>
+                  </div>
+                ))}
+              </div>
+              <div style={{ ...S.totalRow, borderTop: "2px solid #eee", marginTop: 16, paddingTop: 16 }}><span style={S.totalLabel}>{t.total}</span><span style={S.totalAmount}>RM {order.total.toFixed(2)}</span></div>
+              {order.notes && <div style={{ marginTop: 12, padding: 10, background: K.bg, borderRadius: 8, fontSize: 13, color: K.textLight }}><strong>{t.orderNotes}:</strong> {order.notes}</div>}
+            </div>
+          </div>
+
+          {/* Right: Admin management panel */}
+          {isAdmin && (
+            <div style={{ background: K.card, borderRadius: K.radius, border: `1.5px solid ${K.border}`, padding: 22, position: "sticky", top: 100 }}>
+              <h3 style={{ fontSize: 16, fontWeight: 900, margin: "0 0 18px", color: K.text }}>📋 {t.adminOrderInfo}</h3>
+
+              <div style={S.inputGroup}>
+                <label style={S.label}>{t.adminPo}</label>
+                <input style={S.input} value={adminPo} onChange={(e) => setAdminPo(e.target.value)} placeholder="PO-2026-001" />
+              </div>
+
+              <div style={S.inputGroup}>
+                <label style={S.label}>{t.invoiceNo}</label>
+                <input style={S.input} value={invoiceNo} onChange={(e) => setInvoiceNo(e.target.value)} placeholder="INV-2026-001" />
+              </div>
+
+              <div style={S.inputGroup}>
+                <label style={S.label}>{t.uploadInvoice}</label>
+                {invoiceFile ? (
+                  <div style={{ display: "flex", alignItems: "center", gap: 8, padding: 10, background: K.bg, borderRadius: 10, border: `1.5px solid ${K.border}` }}>
+                    <span style={{ fontSize: 24 }}>{invoiceFileName?.endsWith(".pdf") ? "📄" : "🖼️"}</span>
+                    <div style={{ flex: 1, minWidth: 0 }}>
+                      <span style={{ fontSize: 13, fontWeight: 700, color: K.text, display: "block", overflow: "hidden", textOverflow: "ellipsis", whiteSpace: "nowrap" }}>{invoiceFileName || "Invoice"}</span>
+                    </div>
+                    <a href={invoiceFile} download={invoiceFileName} style={{ fontSize: 11, fontWeight: 700, color: "#3b82f6", textDecoration: "none" }}>⬇</a>
+                    <button onClick={() => { setInvoiceFile(""); setInvoiceFileName(""); }} style={{ background: "none", border: "none", color: "#e74c3c", fontSize: 11, fontWeight: 700, cursor: "pointer", fontFamily: K.font }}>{t.removeInvoice}</button>
+                  </div>
+                ) : (
+                  <div
+                    onClick={() => invoiceRef.current?.click()}
+                    onDragOver={(e) => e.preventDefault()}
+                    onDrop={(e) => { e.preventDefault(); handleInvoiceUpload(e.dataTransfer.files[0]); }}
+                    style={{ padding: "18px 12px", border: `2px dashed ${K.border}`, borderRadius: 10, textAlign: "center", cursor: "pointer", background: K.bg, transition: "border-color 0.2s" }}
+                  >
+                    <div style={{ fontSize: 24, marginBottom: 4 }}>📎</div>
+                    <span style={{ fontSize: 12, color: K.textLight, fontFamily: K.font }}>{t.dragDrop}</span>
+                    <div style={{ fontSize: 10, color: K.textLight, marginTop: 4 }}>{t.invoiceHint}</div>
+                    <input ref={invoiceRef} type="file" accept="image/*,.pdf" style={{ display: "none" }} onChange={(e) => handleInvoiceUpload(e.target.files[0])} />
+                  </div>
+                )}
+              </div>
+
+              <div style={S.inputGroup}>
+                <label style={S.label}>{t.orderNotes}</label>
+                <textarea style={{ ...S.input, minHeight: 60, resize: "vertical" }} value={adminNotes} onChange={(e) => setAdminNotes(e.target.value)} placeholder="Internal notes..." />
+              </div>
+
+              <button onClick={saveAdminFields} style={S.primaryBtn}>{t.saveOrderInfo}</button>
+            </div>
+          )}
+        </div>
+      </div>
+    );
+  };
+
   return (
     <div style={S.app}>
       {toast && <div style={S.toast}>{toast}</div>}
@@ -671,50 +864,20 @@ function SupplierPortal() {
       {page === "orders" && (
         <div style={S.content}>
           {viewingOrder ? (
-            <div>
-              <button onClick={() => setViewingOrder(null)} style={S.backBtn}>{t.backToOrders}</button>
-              <div style={S.orderDetailCard}>
-                <div style={S.orderDetailHeader}>
-                  <h3 style={S.orderDetailTitle}>{t.orderDetails}</h3>
-                  <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                    {isAdmin && <select style={{ ...S.input, width: "auto", padding: "4px 8px", fontSize: 13 }} value={viewingOrder.status} onChange={(e) => updateOrderStatus(viewingOrder.id, e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{t.statusMap[s]}</option>)}</select>}
-                    <span style={{ ...S.statusBadge, background: statusColor(viewingOrder.status) + "22", color: statusColor(viewingOrder.status) }}>{t.statusMap[viewingOrder.status]}</span>
-                  </div>
-                </div>
-                <div style={S.orderMeta}>
-                  <div style={S.metaItem}><span style={S.metaLabel}>{t.orderNumber}</span><span style={S.metaValue}>{viewingOrder.id}</span></div>
-                  <div style={S.metaItem}><span style={S.metaLabel}>{t.date}</span><span style={S.metaValue}>{viewingOrder.date}</span></div>
-                  <div style={S.metaItem}><span style={S.metaLabel}>{t.deliveryDate}</span><span style={S.metaValue}>{viewingOrder.deliveryDate}</span></div>
-                  {viewingOrder.po && <div style={S.metaItem}><span style={S.metaLabel}>{t.poNumber}</span><span style={S.metaValue}>{viewingOrder.po}</span></div>}
-                  {isAdmin && viewingOrder.company && <div style={S.metaItem}><span style={S.metaLabel}>Company</span><span style={S.metaValue}>{viewingOrder.company}</span></div>}
-                </div>
-                {/* Client details for admin */}
-                {isAdmin && viewingOrder.supplier && (() => {
-                  const ci = getClientInfo(viewingOrder.supplier);
-                  return ci.username ? (
-                    <div style={{ marginBottom: 20, padding: 16, background: "#EBF5FF", borderRadius: 12, border: "1.5px solid #C8DEFF" }}>
-                      <h4 style={{ margin: "0 0 10px", fontSize: 14, fontWeight: 800, color: "#2563eb" }}>👤 {t.clientDetails}</h4>
-                      <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr", gap: "6px 20px", fontSize: 13 }}>
-                        <div><span style={{ fontWeight: 700, color: K.textLight }}>🏫 </span><span style={{ color: K.text }}>{ci.schoolName || ci.company || ci.username}</span></div>
-                        {ci.email && <div><span style={{ fontWeight: 700, color: K.textLight }}>📧 </span><span style={{ color: K.text }}>{ci.email}</span></div>}
-                        {ci.phone && <div><span style={{ fontWeight: 700, color: K.textLight }}>📞 </span><span style={{ color: K.text }}>{ci.phone}</span></div>}
-                        {ci.address && <div><span style={{ fontWeight: 700, color: K.textLight }}>📍 </span><span style={{ color: K.text }}>{ci.address}</span></div>}
-                      </div>
-                    </div>
-                  ) : null;
-                })()}
-                <div style={S.orderItemsList}>
-                  {viewingOrder.items.map((item, idx) => (
-                    <div key={idx} style={S.orderItemRow}>
-                      <span style={{ fontSize: 28, minWidth: 36 }}>{item.img}</span>
-                      <div style={{ flex: 1 }}><span style={S.cartItemName}>{pName(item)}</span><span style={S.cartItemPrice}>RM {item.price.toFixed(2)} × {item.qty}</span></div>
-                      <span style={S.cartItemTotal}>RM {(item.qty * item.price).toFixed(2)}</span>
-                    </div>
-                  ))}
-                </div>
-                <div style={{ ...S.totalRow, borderTop: "2px solid #eee", marginTop: 16, paddingTop: 16 }}><span style={S.totalLabel}>{t.total}</span><span style={S.totalAmount}>RM {viewingOrder.total.toFixed(2)}</span></div>
-              </div>
-            </div>
+            <OrderDetailView
+              order={viewingOrder}
+              isAdmin={isAdmin}
+              t={t}
+              lang={lang}
+              STATUSES={STATUSES}
+              statusColor={statusColor}
+              pName={pName}
+              getClientInfo={getClientInfo}
+              updateOrderStatus={updateOrderStatus}
+              updateOrderAdminFields={updateOrderAdminFields}
+              showToast={showToast}
+              onBack={() => setViewingOrder(null)}
+            />
           ) : myOrders.length === 0 ? (
             <div style={S.emptyState}><div style={{ fontSize: 64 }}>📋</div><h3 style={S.emptyTitle}>{t.noOrders}</h3><button onClick={() => setPage("catalog")} style={{ ...S.primaryBtn, width: "auto", padding: "12px 32px" }}>{t.catalog}</button></div>
           ) : (
@@ -849,11 +1012,11 @@ function SupplierPortal() {
               {adminOrderView === "list" && (
                 <div style={S.ordersList}>
                   {filteredAdminOrders.length === 0 ? <div style={S.emptyState}><div style={{ fontSize: 48 }}>📋</div><h3 style={S.emptyTitle}>{t.noOrders}</h3></div> : filteredAdminOrders.map((order) => (
-                    <div key={order.id} style={S.orderCard}>
+                    <div key={order.id} style={S.orderCard} onClick={() => { setViewingOrder(order); setPage("orders"); }}>
                       <div style={S.orderCardTop}>
                         <span style={S.orderId}>{order.id}</span>
                         <div style={{ display: "flex", alignItems: "center", gap: 8 }}>
-                          <select style={{ ...S.input, width: "auto", padding: "3px 8px", fontSize: 12, margin: 0 }} value={order.status} onChange={(e) => updateOrderStatus(order.id, e.target.value)}>{STATUSES.map((s) => <option key={s} value={s}>{t.statusMap[s]}</option>)}</select>
+                          <select style={{ ...S.input, width: "auto", padding: "3px 8px", fontSize: 12, margin: 0 }} value={order.status} onClick={(e) => e.stopPropagation()} onChange={(e) => { e.stopPropagation(); updateOrderStatus(order.id, e.target.value); }}>{STATUSES.map((s) => <option key={s} value={s}>{t.statusMap[s]}</option>)}</select>
                           <span style={{ ...S.statusBadge, background: statusColor(order.status) + "22", color: statusColor(order.status) }}>{t.statusMap[order.status]}</span>
                         </div>
                       </div>
@@ -862,6 +1025,13 @@ function SupplierPortal() {
                           <span style={{ ...S.orderInfo, fontWeight: 700, color: K.text }}>🏫 {order.company} <span style={{ fontWeight: 400, color: K.textLight }}>(@{order.supplier})</span></span>
                           <span style={S.orderInfo}>{t.date}: {order.date} → {t.deliveryDate}: {order.deliveryDate}</span>
                           <span style={S.orderInfo}>{order.items.map((i) => `${pName(i)} ×${i.qty}`).join(", ")}</span>
+                          {(order.adminPo || order.invoiceNo) && (
+                            <span style={S.orderInfo}>
+                              {order.adminPo && <span style={{ marginRight: 12 }}>📋 PO: {order.adminPo}</span>}
+                              {order.invoiceNo && <span>🧾 INV: {order.invoiceNo}</span>}
+                              {order.invoiceFile && <span style={{ marginLeft: 8, color: "#3b82f6" }}>📎</span>}
+                            </span>
+                          )}
                         </div>
                         <span style={S.orderTotal}>RM {order.total.toFixed(2)}</span>
                       </div>
